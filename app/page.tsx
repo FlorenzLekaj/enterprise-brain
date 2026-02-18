@@ -1,153 +1,103 @@
 'use client'
 
-/**
- * LOGIN PAGE — Enterprise Brain
- * Industrial Design: Black background, white text, #0066FF accent.
- * Simple email/password login via Supabase Auth.
- */
-
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const router = useRouter()
+  const [error, setError]       = useState<string | null>(null)
+  const [loading, setLoading]   = useState(false)
+  const router   = useRouter()
   const supabase = createClient()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setLoading(true)
-
     try {
       const { error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       })
-
       if (authError) {
-        setError('Ungültige E-Mail-Adresse oder Passwort. Bitte erneut versuchen.')
+        setError('Ungültige E-Mail-Adresse oder Passwort.')
         return
       }
-
-      // Redirect to dashboard — middleware ensures session is valid
       router.push('/dashboard')
       router.refresh()
     } catch {
-      setError('Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.')
+      setError('Ein unerwarteter Fehler ist aufgetreten.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <main className="min-h-screen bg-[#0A0A0A] flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <main style={{ minHeight: '100vh', background: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 20px', fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',sans-serif" }}>
 
-        {/* ── Brand Header ── */}
-        <div className="mb-12 text-center">
-          <div className="inline-flex items-center gap-3 mb-3">
-            {/* Blue square logo mark */}
-            <div className="w-7 h-7 bg-[#0066FF] rounded-[3px]" aria-hidden="true" />
-            <span className="text-white text-2xl font-bold tracking-tight">
-              Enterprise Brain
-            </span>
-          </div>
-          <p className="text-zinc-500 text-sm tracking-wide uppercase">
-            Firmenwissen · Präzise · Sofort
-          </p>
+      {/* ── Brand ── */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 40 }}>
+        <div style={{ width: 68, height: 68, borderRadius: 22, background: 'linear-gradient(145deg,#0071e3,#34aadc)', boxShadow: '0 8px 32px rgba(0,113,227,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
         </div>
+        <h1 style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.5px', color: '#1d1d1f', margin: 0 }}>Enterprise Brain</h1>
+        <p style={{ fontSize: 15, color: '#6e6e73', marginTop: 6 }}>Melden Sie sich an, um fortzufahren</p>
+      </div>
 
-        {/* ── Login Card ── */}
-        <div className="bg-[#111111] border border-zinc-800 rounded-xl p-8">
-          <h1 className="text-white text-lg font-semibold mb-6">Anmelden</h1>
+      {/* ── Form card ── */}
+      <div style={{ width: '100%', maxWidth: 400, background: '#f5f5f7', borderRadius: 20, padding: '32px 28px' }}>
+        <form onSubmit={handleLogin} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          <form onSubmit={handleLogin} className="space-y-5" noValidate>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#1d1d1f', marginBottom: 7 }}>E-Mail</label>
+            <input
+              type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="name@firma.de"
+              style={{ width: '100%', background: '#fff', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: '13px 16px', fontSize: 15, color: '#1d1d1f', outline: 'none', fontFamily: 'inherit' }}
+              onFocus={e => { e.target.style.borderColor = '#0071e3'; e.target.style.boxShadow = '0 0 0 3px rgba(0,113,227,0.15)' }}
+              onBlur={e  => { e.target.style.borderColor = 'rgba(0,0,0,0.1)'; e.target.style.boxShadow = 'none' }}
+            />
+          </div>
 
-            {/* Email */}
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-zinc-400 text-xs font-medium uppercase tracking-wider mb-2"
-              >
-                E-Mail
-              </label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                placeholder="name@firma.de"
-                className="w-full bg-[#1A1A1A] border border-zinc-700 rounded-lg px-4 py-3 text-white text-sm placeholder-zinc-600
-                           focus:outline-none focus:border-[#0066FF] focus:ring-1 focus:ring-[#0066FF]
-                           transition-colors duration-150"
-              />
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#1d1d1f', marginBottom: 7 }}>Passwort</label>
+            <input
+              type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="••••••••"
+              style={{ width: '100%', background: '#fff', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: '13px 16px', fontSize: 15, color: '#1d1d1f', outline: 'none', fontFamily: 'inherit' }}
+              onFocus={e => { e.target.style.borderColor = '#0071e3'; e.target.style.boxShadow = '0 0 0 3px rgba(0,113,227,0.15)' }}
+              onBlur={e  => { e.target.style.borderColor = 'rgba(0,0,0,0.1)'; e.target.style.boxShadow = 'none' }}
+            />
+          </div>
+
+          {error && (
+            <div style={{ background: '#fff0f0', border: '1px solid rgba(255,59,48,0.2)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#ff3b30' }}>
+              {error}
             </div>
+          )}
 
-            {/* Password */}
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-zinc-400 text-xs font-medium uppercase tracking-wider mb-2"
-              >
-                Passwort
-              </label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="••••••••"
-                className="w-full bg-[#1A1A1A] border border-zinc-700 rounded-lg px-4 py-3 text-white text-sm placeholder-zinc-600
-                           focus:outline-none focus:border-[#0066FF] focus:ring-1 focus:ring-[#0066FF]
-                           transition-colors duration-150"
-              />
-            </div>
-
-            {/* Error message */}
-            {error && (
-              <div
-                role="alert"
-                className="bg-red-950/60 border border-red-800 rounded-lg px-4 py-3 text-red-400 text-sm"
-              >
-                {error}
-              </div>
-            )}
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#0066FF] hover:bg-[#0055DD] active:bg-[#0044CC]
-                         disabled:bg-zinc-700 disabled:cursor-not-allowed
-                         text-white font-semibold py-3 px-4 rounded-lg text-sm
-                         transition-colors duration-150"
-            >
-              {loading ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          <button
+            type="submit" disabled={loading}
+            style={{ width: '100%', marginTop: 4, background: loading ? '#aeaeb2' : '#0071e3', color: '#fff', border: 'none', borderRadius: 12, padding: '14px 0', fontSize: 15, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '-0.1px', boxShadow: loading ? 'none' : '0 2px 10px rgba(0,113,227,0.25)', fontFamily: 'inherit' }}
+            onMouseEnter={e => { if (!loading) (e.target as HTMLElement).style.background = '#0077ed' }}
+            onMouseLeave={e => { if (!loading) (e.target as HTMLElement).style.background = '#0071e3' }}
+          >
+            {loading
+              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.35)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
                   Anmelden…
                 </span>
-              ) : (
-                'Anmelden'
-              )}
-            </button>
-          </form>
-        </div>
+              : 'Anmelden'}
+          </button>
 
-        {/* Footer */}
-        <p className="text-center text-zinc-700 text-xs mt-8">
-          © {new Date().getFullYear()} Enterprise Brain. Alle Rechte vorbehalten.
-        </p>
+        </form>
       </div>
+
+      <p style={{ marginTop: 36, fontSize: 12, color: '#aeaeb2' }}>© {new Date().getFullYear()} Enterprise Brain</p>
+
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </main>
   )
 }

@@ -1,407 +1,262 @@
 'use client'
 
-/**
- * DASHBOARD PAGE — Enterprise Brain
- * Two primary actions: "Wissen hochladen" and "Frage stellen".
- * Industrial Design: White/light-gray background, #0066FF accent.
- *
- * State machine: home → upload | chat → back to home
- */
-
 import { useState, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import type { ChatMessage } from '@/types'
 
-// ── Icon components (inline SVG, no extra dependency) ─────────────────────────
-
-function UploadIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-    </svg>
-  )
-}
-
-function ChatIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-    </svg>
-  )
-}
-
-function ChevronRight({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
-  )
-}
-
-function ChevronLeft({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-    </svg>
-  )
-}
-
-// ── View types ────────────────────────────────────────────────────────────────
+const F = "-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',sans-serif"
 
 type View = 'home' | 'upload' | 'chat'
-
-// ── Main Component ────────────────────────────────────────────────────────────
+interface Msg { role: 'user' | 'assistant'; content: string }
 
 export default function DashboardPage() {
-  const [view, setView] = useState<View>('home')
-
-  // Upload state
-  const [uploading, setUploading] = useState(false)
-  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
-  const [uploadError, setUploadError] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Chat state
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [question, setQuestion] = useState('')
+  const [view, setView]               = useState<View>('home')
+  const [uploading, setUploading]     = useState(false)
+  const [uploadOk, setUploadOk]       = useState<string | null>(null)
+  const [uploadErr, setUploadErr]     = useState<string | null>(null)
+  const [messages, setMessages]       = useState<Msg[]>([])
+  const [question, setQuestion]       = useState('')
   const [chatLoading, setChatLoading] = useState(false)
-  const chatEndRef = useRef<HTMLDivElement>(null)
+  const fileRef   = useRef<HTMLInputElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const router    = useRouter()
+  const supabase  = createClient()
 
-  const router = useRouter()
-  const supabase = createClient()
-
-  // ── Logout ───────────────────────────────────────────────────────────────────
-
-  const handleLogout = useCallback(async () => {
+  const logout = useCallback(async () => {
     await supabase.auth.signOut()
-    router.push('/')
-    router.refresh()
+    router.push('/'); router.refresh()
   }, [supabase, router])
 
-  // ── Navigation ───────────────────────────────────────────────────────────────
+  const goHome = () => { setView('home'); setUploadOk(null); setUploadErr(null) }
 
-  const goHome = () => {
-    setView('home')
-    setUploadSuccess(null)
-    setUploadError(null)
-  }
-
-  // ── File Upload ──────────────────────────────────────────────────────────────
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  /* ── Upload ── */
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
-    setUploadError(null)
-    setUploadSuccess(null)
-
-    if (file.type !== 'application/pdf') {
-      setUploadError('Nur PDF-Dateien sind erlaubt.')
-      return
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('Die Datei darf nicht größer als 10 MB sein.')
-      return
-    }
-
+    setUploadErr(null); setUploadOk(null)
+    if (file.type !== 'application/pdf') { setUploadErr('Nur PDF-Dateien erlaubt.'); return }
+    if (file.size > 10 * 1024 * 1024)   { setUploadErr('Maximal 10 MB.'); return }
     setUploading(true)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
-      const data = await res.json()
-
-      if (!res.ok) throw new Error(data.error ?? 'Upload fehlgeschlagen')
-
-      setUploadSuccess(`„${file.name}" wurde verarbeitet und gespeichert.`)
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload fehlgeschlagen.')
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
+      const fd = new FormData(); fd.append('file', file)
+      const r  = await fetch('/api/upload', { method: 'POST', body: fd })
+      const d  = await r.json()
+      if (!r.ok) throw new Error(d.error ?? 'Upload fehlgeschlagen')
+      setUploadOk(`„${file.name}" erfolgreich gespeichert.`)
+    } catch (err) { setUploadErr(err instanceof Error ? err.message : 'Fehler') }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
 
-  // ── Chat ─────────────────────────────────────────────────────────────────────
-
-  const handleChatSubmit = async (e: React.FormEvent) => {
+  /* ── Chat ── */
+  const onChat = async (e: React.FormEvent) => {
     e.preventDefault()
-    const q = question.trim()
-    if (!q || chatLoading) return
-
-    setQuestion('')
-    setMessages((prev) => [...prev, { role: 'user', content: q }])
-    setChatLoading(true)
-
+    const q = question.trim(); if (!q || chatLoading) return
+    setQuestion(''); setMessages(p => [...p, { role: 'user', content: q }]); setChatLoading(true)
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q }),
-      })
-      const data = await res.json()
-
-      if (!res.ok) throw new Error(data.error ?? 'Unbekannter Fehler')
-
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.answer }])
+      const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? 'Fehler')
+      setMessages(p => [...p, { role: 'assistant', content: d.answer }])
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `⚠️ ${err instanceof Error ? err.message : 'Der KI-Dienst ist momentan nicht erreichbar. Bitte erneut versuchen.'}`,
-        },
-      ])
+      setMessages(p => [...p, { role: 'assistant', content: `⚠️ ${err instanceof Error ? err.message : 'KI nicht erreichbar.'}` }])
     } finally {
       setChatLoading(false)
-      // Scroll to latest message
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  /* ── Shared styles ── */
+  const s = {
+    page:    { minHeight: '100vh', background: '#f5f5f7', fontFamily: F } as React.CSSProperties,
+    nav:     { background: 'rgba(255,255,255,0.72)', backdropFilter: 'saturate(180%) blur(20px)', borderBottom: '1px solid rgba(0,0,0,0.07)', position: 'sticky', top: 0, zIndex: 50 } as React.CSSProperties,
+    navInner:{ maxWidth: 960, margin: '0 auto', padding: '0 24px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between' } as React.CSSProperties,
+    logo:    { display: 'flex', alignItems: 'center', gap: 8 } as React.CSSProperties,
+    logoMk:  { width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(145deg,#0071e3,#34aadc)', display: 'flex', alignItems: 'center', justifyContent: 'center' } as React.CSSProperties,
+    logoCo:  { fontSize: 15, fontWeight: 600, color: '#1d1d1f', letterSpacing: '-0.2px' } as React.CSSProperties,
+    logOut:  { fontSize: 13, color: '#6e6e73', background: 'none', border: 'none', cursor: 'pointer', fontFamily: F } as React.CSSProperties,
+    main:    { maxWidth: 960, margin: '0 auto', padding: '48px 24px' } as React.CSSProperties,
+    h1:      { fontSize: 32, fontWeight: 700, letterSpacing: '-0.6px', color: '#1d1d1f', marginBottom: 6 } as React.CSSProperties,
+    sub:     { fontSize: 15, color: '#6e6e73', marginBottom: 40 } as React.CSSProperties,
+    card:    { background: '#fff', borderRadius: 20, padding: '32px 28px', boxShadow: '0 2px 20px rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.06)', cursor: 'pointer', textAlign: 'left' } as React.CSSProperties,
+    iconBox: { width: 52, height: 52, borderRadius: 16, background: '#f0f6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 } as React.CSSProperties,
+    cardH:   { fontSize: 19, fontWeight: 600, color: '#1d1d1f', letterSpacing: '-0.3px', marginBottom: 8 } as React.CSSProperties,
+    cardP:   { fontSize: 14, color: '#6e6e73', lineHeight: 1.55, marginBottom: 24 } as React.CSSProperties,
+    cta:     { fontSize: 14, fontWeight: 500, color: '#0071e3', display: 'inline-flex', alignItems: 'center', gap: 3 } as React.CSSProperties,
+    back:    { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#6e6e73', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 28, fontFamily: F, padding: 0 } as React.CSSProperties,
+    input:   { width: '100%', background: '#fff', border: '1.5px solid rgba(0,0,0,0.1)', borderRadius: 12, padding: '13px 16px', fontSize: 15, color: '#1d1d1f', outline: 'none', fontFamily: F } as React.CSSProperties,
+    btn:     { background: '#0071e3', color: '#fff', border: 'none', borderRadius: 12, padding: '13px 24px', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' } as React.CSSProperties,
+  }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div style={s.page}>
 
-      {/* ── Top Navigation ── */}
-      <header className="border-b border-zinc-200 bg-white sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-5 h-5 bg-[#0066FF] rounded-[2px]" aria-hidden="true" />
-            <span className="text-zinc-900 font-bold text-sm tracking-tight">Enterprise Brain</span>
+      {/* ── Nav ── */}
+      <nav style={s.nav}>
+        <div style={s.navInner}>
+          <div style={s.logo}>
+            <div style={s.logoMk}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+              </svg>
+            </div>
+            <span style={s.logoCo}>Enterprise Brain</span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-zinc-400 hover:text-zinc-700 text-sm transition-colors"
-          >
-            Abmelden
-          </button>
+          <button style={s.logOut} onClick={logout}>Abmelden</button>
         </div>
-      </header>
+      </nav>
 
-      {/* ── Main Content ── */}
-      <main className="flex-1 max-w-5xl mx-auto w-full px-6 py-10">
+      <main style={s.main}>
 
-        {/* ════════════════════════════════════════════════════════ HOME VIEW */}
+        {/* ════════ HOME ════════ */}
         {view === 'home' && (
           <>
-            <div className="mb-10">
-              <h1 className="text-2xl font-bold text-zinc-900 mb-1">
-                Was möchten Sie tun?
-              </h1>
-              <p className="text-zinc-500 text-sm">
-                Laden Sie Firmenwissen hoch oder befragen Sie die KI direkt.
-              </p>
-            </div>
+            <h1 style={s.h1}>Was möchten Sie tun?</h1>
+            <p style={s.sub}>Laden Sie Firmenwissen hoch oder befragen Sie Ihre Dokumente.</p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
 
-              {/* Card: Upload */}
-              <button
+              {/* Upload card */}
+              <div
+                style={s.card}
                 onClick={() => setView('upload')}
-                className="group text-left border-2 border-zinc-200 hover:border-[#0066FF] rounded-xl p-8
-                           transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 40px rgba(0,0,0,0.10)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 20px rgba(0,0,0,0.06)'; (e.currentTarget as HTMLElement).style.transform = 'none' }}
               >
-                <div className="w-11 h-11 bg-zinc-100 group-hover:bg-blue-50 rounded-lg
-                                flex items-center justify-center mb-6 transition-colors">
-                  <UploadIcon className="w-5 h-5 text-zinc-500 group-hover:text-[#0066FF] transition-colors" />
+                <div style={s.iconBox}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0071e3" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
                 </div>
-                <h2 className="text-lg font-bold text-zinc-900 mb-2">Wissen hochladen</h2>
-                <p className="text-zinc-500 text-sm leading-relaxed">
-                  PDFs hochladen und als Wissensbasis speichern — Handbücher, Richtlinien, Berichte und mehr.
-                </p>
-                <div className="mt-6 inline-flex items-center text-[#0066FF] text-sm font-semibold gap-1">
-                  Dokument hochladen
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </button>
+                <h2 style={s.cardH}>Wissen hochladen</h2>
+                <p style={s.cardP}>PDFs hochladen — Handbücher, Richtlinien, Reports — alles wird automatisch verarbeitet.</p>
+                <span style={s.cta}>Dokument hochladen <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+              </div>
 
-              {/* Card: Chat */}
-              <button
+              {/* Chat card */}
+              <div
+                style={s.card}
                 onClick={() => setView('chat')}
-                className="group text-left border-2 border-zinc-200 hover:border-[#0066FF] rounded-xl p-8
-                           transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 40px rgba(0,0,0,0.10)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 20px rgba(0,0,0,0.06)'; (e.currentTarget as HTMLElement).style.transform = 'none' }}
               >
-                <div className="w-11 h-11 bg-zinc-100 group-hover:bg-blue-50 rounded-lg
-                                flex items-center justify-center mb-6 transition-colors">
-                  <ChatIcon className="w-5 h-5 text-zinc-500 group-hover:text-[#0066FF] transition-colors" />
+                <div style={s.iconBox}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0071e3" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                  </svg>
                 </div>
-                <h2 className="text-lg font-bold text-zinc-900 mb-2">Frage stellen</h2>
-                <p className="text-zinc-500 text-sm leading-relaxed">
-                  Fragen Sie die KI nach Informationen aus Ihren Dokumenten — präzise, ohne Halluzinationen.
-                </p>
-                <div className="mt-6 inline-flex items-center text-[#0066FF] text-sm font-semibold gap-1">
-                  Frage stellen
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </button>
+                <h2 style={s.cardH}>Frage stellen</h2>
+                <p style={s.cardP}>Befragen Sie Ihre Dokumente per KI — präzise Antworten, keine Halluzinationen.</p>
+                <span style={s.cta}>Frage stellen <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+              </div>
             </div>
           </>
         )}
 
-        {/* ════════════════════════════════════════════════════════ UPLOAD VIEW */}
+        {/* ════════ UPLOAD ════════ */}
         {view === 'upload' && (
-          <div className="max-w-lg">
-            <BackButton onClick={goHome} />
+          <div style={{ maxWidth: 520 }}>
+            <button style={s.back} onClick={goHome}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+              Zurück
+            </button>
+            <h1 style={s.h1}>Wissen hochladen</h1>
+            <p style={s.sub}>PDF wird automatisch verarbeitet und gespeichert.</p>
 
-            <h1 className="text-2xl font-bold text-zinc-900 mb-1">Wissen hochladen</h1>
-            <p className="text-zinc-500 text-sm mb-8">
-              PDF-Dateien werden automatisch verarbeitet und mandantengetrennt gespeichert.
-            </p>
-
-            {/* Drop zone */}
             <div
-              onClick={() => !uploading && fileInputRef.current?.click()}
-              role="button"
-              aria-label="PDF-Datei auswählen"
-              className={`relative border-2 border-dashed rounded-xl p-14 text-center cursor-pointer
-                          transition-all duration-200
-                          ${uploading
-                  ? 'border-zinc-200 bg-zinc-50 cursor-not-allowed'
-                  : 'border-zinc-300 hover:border-[#0066FF] hover:bg-blue-50/30'
-                }`}
+              onClick={() => !uploading && fileRef.current?.click()}
+              style={{ border: '2px dashed rgba(0,0,0,0.12)', borderRadius: 20, padding: '56px 32px', textAlign: 'center', cursor: uploading ? 'not-allowed' : 'pointer', background: uploading ? '#fafafa' : '#fff', transition: 'all 0.15s' }}
+              onMouseEnter={e => { if (!uploading) { (e.currentTarget as HTMLElement).style.borderColor = '#0071e3'; (e.currentTarget as HTMLElement).style.background = '#f0f6ff' }}}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,0,0,0.12)'; (e.currentTarget as HTMLElement).style.background = uploading ? '#fafafa' : '#fff' }}
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf"
-                onChange={handleFileChange}
-                disabled={uploading}
-                className="hidden"
-              />
-
+              <input ref={fileRef} type="file" accept=".pdf" onChange={onFile} disabled={uploading} style={{ display: 'none' }} />
               {uploading ? (
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-8 h-8 border-2 border-zinc-200 border-t-[#0066FF] rounded-full animate-spin" />
-                  <p className="text-zinc-600 font-medium text-sm">Dokument wird verarbeitet…</p>
-                  <p className="text-zinc-400 text-xs">Text wird extrahiert und gespeichert</p>
+                <div>
+                  <div style={{ width: 36, height: 36, border: '3px solid rgba(0,113,227,0.15)', borderTopColor: '#0071e3', borderRadius: '50%', animation: 'spin 0.7s linear infinite', margin: '0 auto 14px' }} />
+                  <p style={{ fontSize: 15, color: '#1d1d1f', fontWeight: 500 }}>Wird verarbeitet…</p>
+                  <p style={{ fontSize: 13, color: '#6e6e73', marginTop: 4 }}>Text wird extrahiert</p>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <UploadIcon className="w-9 h-9 text-zinc-300 mb-2" />
-                  <p className="text-zinc-600 font-medium text-sm">PDF hierher ziehen oder klicken</p>
-                  <p className="text-zinc-400 text-xs">Maximale Dateigröße: 10 MB</p>
+                <div>
+                  <div style={{ width: 48, height: 48, borderRadius: 14, background: '#f0f6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0071e3" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                  </div>
+                  <p style={{ fontSize: 15, color: '#1d1d1f', fontWeight: 500 }}>PDF klicken oder hierher ziehen</p>
+                  <p style={{ fontSize: 13, color: '#6e6e73', marginTop: 5 }}>Maximal 10 MB</p>
                 </div>
               )}
             </div>
 
-            {/* Success */}
-            {uploadSuccess && (
-              <div className="mt-4 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-green-700 text-sm">
-                ✓ {uploadSuccess}
-              </div>
-            )}
-
-            {/* Error */}
-            {uploadError && (
-              <div role="alert" className="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-600 text-sm">
-                {uploadError}
-              </div>
-            )}
+            {uploadOk && <div style={{ marginTop: 14, background: '#f0faf0', border: '1px solid rgba(52,199,89,0.25)', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#34c759' }}>✓ {uploadOk}</div>}
+            {uploadErr && <div style={{ marginTop: 14, background: '#fff0f0', border: '1px solid rgba(255,59,48,0.2)', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#ff3b30' }}>{uploadErr}</div>}
+            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
           </div>
         )}
 
-        {/* ════════════════════════════════════════════════════════ CHAT VIEW */}
+        {/* ════════ CHAT ════════ */}
         {view === 'chat' && (
-          <div className="max-w-3xl flex flex-col" style={{ minHeight: 'calc(100vh - 10rem)' }}>
-            <BackButton onClick={goHome} />
+          <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 160px)' }}>
+            <button style={s.back} onClick={() => { setView('home'); setMessages([]) }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+              Zurück
+            </button>
+            <h1 style={s.h1}>Frage stellen</h1>
+            <p style={s.sub}>Antworten ausschließlich aus Ihren Dokumenten — keine Halluzinationen.</p>
 
-            <h1 className="text-2xl font-bold text-zinc-900 mb-1">Frage stellen</h1>
-            <p className="text-zinc-500 text-sm mb-8">
-              Die KI antwortet ausschließlich auf Basis Ihrer Firmendokumente.
-            </p>
-
-            {/* Message list */}
-            <div className="flex-1 space-y-4 mb-6 overflow-y-auto">
+            {/* Messages */}
+            <div style={{ flex: 1, marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
               {messages.length === 0 && (
-                <div className="text-center text-zinc-400 text-sm py-10">
-                  Stellen Sie Ihre erste Frage…
-                </div>
+                <div style={{ textAlign: 'center', padding: '60px 0', color: '#aeaeb2', fontSize: 14 }}>Stellen Sie Ihre erste Frage…</div>
               )}
-
-              {messages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[82%] rounded-2xl px-5 py-3 text-sm leading-relaxed whitespace-pre-wrap
-                                ${msg.role === 'user'
-                        ? 'bg-[#0066FF] text-white rounded-br-sm'
-                        : 'bg-zinc-100 text-zinc-800 rounded-bl-sm'
-                      }`}
-                  >
-                    {msg.content}
+              {messages.map((m, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{
+                    maxWidth: '78%', borderRadius: m.role === 'user' ? '20px 20px 6px 20px' : '20px 20px 20px 6px',
+                    padding: '12px 16px', fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                    background: m.role === 'user' ? '#0071e3' : '#fff',
+                    color:      m.role === 'user' ? '#fff' : '#1d1d1f',
+                    boxShadow:  m.role === 'user' ? '0 2px 10px rgba(0,113,227,0.25)' : '0 2px 12px rgba(0,0,0,0.07)',
+                  }}>
+                    {m.content}
                   </div>
                 </div>
               ))}
-
-              {/* Typing indicator */}
               {chatLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-zinc-100 rounded-2xl rounded-bl-sm px-5 py-4">
-                    <div className="flex gap-1.5 items-center">
-                      {[0, 150, 300].map((delay) => (
-                        <span
-                          key={delay}
-                          className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce"
-                          style={{ animationDelay: `${delay}ms` }}
-                        />
-                      ))}
+                <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                  <div style={{ background: '#fff', borderRadius: '20px 20px 20px 6px', padding: '14px 18px', boxShadow: '0 2px 12px rgba(0,0,0,0.07)' }}>
+                    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                      {[0,150,300].map(d => <span key={d} style={{ width: 7, height: 7, borderRadius: '50%', background: '#aeaeb2', display: 'inline-block', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}
                     </div>
                   </div>
                 </div>
               )}
-
-              <div ref={chatEndRef} />
+              <div ref={bottomRef} />
             </div>
 
             {/* Input */}
-            <form
-              onSubmit={handleChatSubmit}
-              className="flex gap-3 sticky bottom-4 bg-white pt-4 border-t border-zinc-100"
-            >
+            <form onSubmit={onChat} style={{ display: 'flex', gap: 10, position: 'sticky', bottom: 20, background: '#f5f5f7', paddingTop: 12 }}>
               <input
-                type="text"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Ihre Frage an das Firmenwissen…"
-                autoFocus
-                className="flex-1 border border-zinc-200 rounded-xl px-4 py-3 text-sm text-zinc-900
-                           placeholder-zinc-400 focus:outline-none focus:border-[#0066FF]
-                           focus:ring-1 focus:ring-[#0066FF] transition-colors"
+                type="text" value={question} onChange={e => setQuestion(e.target.value)}
+                placeholder="Ihre Frage an das Firmenwissen…" autoFocus
+                style={{ ...s.input, flex: 1, boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}
+                onFocus={e => { e.target.style.borderColor = '#0071e3'; e.target.style.boxShadow = '0 0 0 3px rgba(0,113,227,0.15), 0 2px 12px rgba(0,0,0,0.06)' }}
+                onBlur={e  => { e.target.style.borderColor = 'rgba(0,0,0,0.1)'; e.target.style.boxShadow = '0 2px 12px rgba(0,0,0,0.06)' }}
               />
-              <button
-                type="submit"
-                disabled={chatLoading || !question.trim()}
-                className="bg-[#0066FF] hover:bg-[#0055DD] active:bg-[#0044CC]
-                           disabled:bg-zinc-200 disabled:cursor-not-allowed
-                           text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors"
-              >
+              <button type="submit" disabled={chatLoading || !question.trim()}
+                style={{ ...s.btn, opacity: (chatLoading || !question.trim()) ? 0.5 : 1, cursor: (chatLoading || !question.trim()) ? 'not-allowed' : 'pointer', boxShadow: '0 2px 10px rgba(0,113,227,0.25)' }}>
                 Senden
               </button>
             </form>
+
+            <style>{`
+              @keyframes spin{to{transform:rotate(360deg)}}
+              @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+            `}</style>
           </div>
         )}
+
       </main>
     </div>
-  )
-}
-
-// ── Reusable back button ──────────────────────────────────────────────────────
-
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="inline-flex items-center gap-1 text-zinc-400 hover:text-zinc-700
-                 text-sm mb-8 transition-colors"
-    >
-      <ChevronLeft className="w-4 h-4" />
-      Zurück
-    </button>
   )
 }
